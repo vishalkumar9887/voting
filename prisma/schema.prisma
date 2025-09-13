@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // One-to-Many: A User can create many Polls
+  createdPolls Poll[] @relation("PollCreator")
+
+  // Many-to-Many: A User can vote on many PollOptions
+  votes Vote[]
+
+  @@map("users")
+}
+
+model Poll {
+  id          String   @id @default(cuid())
+  question    String
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // One-to-Many: A Poll belongs to one User (creator)
+  creatorId String
+  creator   User   @relation("PollCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  // One-to-Many: A Poll can have multiple PollOptions
+  pollOptions PollOption[]
+
+  @@map("polls")
+}
+
+model PollOption {
+  id     String @id @default(cuid())
+  text   String
+  pollId String
+
+  // One-to-Many: A PollOption belongs to one Poll
+  poll Poll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  // Many-to-Many: A PollOption can be voted on by many Users
+  votes Vote[]
+
+  @@map("poll_options")
+}
+
+model Vote {
+  id           String   @id @default(cuid())
+  userId       String
+  pollOptionId String
+  createdAt    DateTime @default(now())
+
+  // Many-to-Many: A Vote belongs to one User and one PollOption
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pollOption PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+
+  // Ensure a user can only vote once per poll (not per option)
+  @@unique([userId, pollOptionId])
+  @@map("votes")
+}

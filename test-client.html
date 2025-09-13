@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polling WebSocket Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .message { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .poll-results {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .poll-option {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .poll-option:last-child {
+            border-bottom: none;
+        }
+        .vote-count {
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Polling WebSocket Test Client</h1>
+        
+        <div id="status" class="status disconnected">
+            Disconnected
+        </div>
+        
+        <div>
+            <input type="text" id="pollId" placeholder="Enter Poll ID" value="">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+        
+        <div>
+            <button id="subscribeBtn" onclick="subscribeToPoll()" disabled>Subscribe to Poll</button>
+            <button id="unsubscribeBtn" onclick="unsubscribeFromPoll()" disabled>Unsubscribe</button>
+            <button id="pingBtn" onclick="ping()" disabled>Ping</button>
+        </div>
+        
+        <div id="pollResults" class="poll-results" style="display: none;">
+            <h3>Poll Results</h3>
+            <div id="pollQuestion"></div>
+            <div id="pollOptions"></div>
+            <div id="totalVotes"></div>
+        </div>
+        
+        <h3>WebSocket Messages</h3>
+        <div id="log" class="log"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        let ws = null;
+        let currentPollId = null;
+
+        function updateStatus(message, className) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${className}`;
+        }
+
+        function addLog(message) {
+            const log = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            log.innerHTML += `[${timestamp}] ${message}\n`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                addLog('Already connected');
+                return;
+            }
+
+            ws = new WebSocket('ws://localhost:3000/ws');
+            
+            ws.onopen = function() {
+                updateStatus('Connected', 'connected');
+                addLog('Connected to WebSocket server');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                document.getElementById('subscribeBtn').disabled = false;
+                document.getElementById('pingBtn').disabled = false;
+            };
+
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                addLog(`Received: ${JSON.stringify(data, null, 2)}`);
+                
+                if (data.type === 'poll_update') {
+                    displayPollResults(data.data);
+                }
+            };
+
+            ws.onclose = function() {
+                updateStatus('Disconnected', 'disconnected');
+                addLog('Disconnected from WebSocket server');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                document.getElementById('subscribeBtn').disabled = true;
+                document.getElementById('unsubscribeBtn').disabled = true;
+                document.getElementById('pingBtn').disabled = true;
+            };
+
+            ws.onerror = function(error) {
+                addLog(`Error: ${error}`);
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function subscribeToPoll() {
+            const pollId = document.getElementById('pollId').value.trim();
+            if (!pollId) {
+                alert('Please enter a Poll ID');
+                return;
+            }
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'subscribe_poll',
+                    pollId: pollId
+                };
+                ws.send(JSON.stringify(message));
+                addLog(`Sent: ${JSON.stringify(message)}`);
+                currentPollId = pollId;
+                document.getElementById('unsubscribeBtn').disabled = false;
+            }
+        }
+
+        function unsubscribeFromPoll() {
+            if (ws && ws.readyState === WebSocket.OPEN && currentPollId) {
+                const message = {
+                    type: 'unsubscribe_poll',
+                    pollId: currentPollId
+                };
+                ws.send(JSON.stringify(message));
+                addLog(`Sent: ${JSON.stringify(message)}`);
+                currentPollId = null;
+                document.getElementById('unsubscribeBtn').disabled = true;
+                document.getElementById('pollResults').style.display = 'none';
+            }
+        }
+
+        function ping() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'ping'
+                };
+                ws.send(JSON.stringify(message));
+                addLog(`Sent: ${JSON.stringify(message)}`);
+            }
+        }
+
+        function displayPollResults(data) {
+            const pollResults = document.getElementById('pollResults');
+            const pollQuestion = document.getElementById('pollQuestion');
+            const pollOptions = document.getElementById('pollOptions');
+            const totalVotes = document.getElementById('totalVotes');
+
+            pollQuestion.innerHTML = `<h4>${data.poll.question}</h4>`;
+            
+            let optionsHtml = '';
+            data.results.forEach(option => {
+                optionsHtml += `
+                    <div class="poll-option">
+                        <span>${option.text}</span>
+                        <span class="vote-count">${option.voteCount} votes</span>
+                    </div>
+                `;
+            });
+            pollOptions.innerHTML = optionsHtml;
+            
+            totalVotes.innerHTML = `<strong>Total Votes: ${data.totalVotes}</strong>`;
+            
+            pollResults.style.display = 'block';
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // Auto-connect on page load
+        window.onload = function() {
+            addLog('WebSocket Test Client loaded. Click Connect to start.');
+        };
+    </script>
+</body>
+</html>
